@@ -1,70 +1,51 @@
+import streamlit as st
 import os
-import gradio as gr
-import torch
-import numpy as np
-import easyocr
-import sqlite3
 import requests
-import fitz  # PDF işlemleri için PyMuPDF
+import sqlite3
+import pandas as pd
 from PIL import Image
-from transformers import AutoImageProcessor, AutoModelForObjectDetection
+import fitz  # PyMuPDF
+import easyocr
+import numpy as np
 
-# ==========================================
-# 0. HUGGING FACE API AYARI
-# ==========================================
-# Token'ı Hugging Face'in güvenli ortam değişkenlerinden (Secret) çekiyoruz:
-HF_TOKEN = os.environ.get("HF_TOKEN") 
+# Sayfa Yapılandırması
+st.set_page_config(page_title="Akıllı Belge Analiz Asistanı", page_icon="🤖", layout="wide")
+
+# Hugging Face Token Bilgisi
+F_TOKEN = os.environ.get("HF_TOKEN")
 API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct"
 
-# ==========================================
-# 1. SQLITE VERİ TABANI AYARLARI
-# ==========================================
-DB_NAME = "proje_hafizasi.db"
-
-def veritabanini_hazirla():
-    conn = sqlite3.connect(DB_NAME)
+# Veritabanı Kurulumu
+def veritabanı_hazirla():
+    conn = sqlite3.connect("proje_hafizasi.db")
     cursor = conn.cursor()
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS Belgeler (
-            belge_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dosya_adi TEXT NOT NULL,
-            yukleme_tarihi TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS Metin_Sonuclari (
-            sonuc_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            belge_id INTEGER,
-            okunan_metin TEXT,
-            belge_ozeti TEXT,
-            anahtar_kelimeler TEXT,
-            FOREIGN KEY (belge_id) REFERENCES Belgeler(belge_id)
+        CREATE TABLE IF NOT EXISTS belgeler (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            belge_adi TEXT,
+            ham_metin TEXT,
+            analiz_raporu TEXT
         )
     ''')
     conn.commit()
     conn.close()
 
-veritabanini_hazirla()
+veritabanı_hazirla()
 
-# ==========================================
-# 2. YAPAY ZEKA MODELLERİ
-# ==========================================
-print("Yapay zeka modelleri yükleniyor...")
-model_path = "PaddlePaddle/PP-DocLayoutV3_safetensors"
-model = AutoModelForObjectDetection.from_pretrained(model_path)
-image_processor = AutoImageProcessor.from_pretrained(model_path)
-reader = easyocr.Reader(['tr', 'en'])
+# OCR Okuma Fonksiyonu
+@st.cache_resource
+def ocr_yukle():
+    return easyocr.Reader(['tr', 'en'])
 
-# ==========================================
-# 3. LLM ÖZETLEME VE ANALİZ FONKSİYONU
-# ==========================================
+reader = ocr_yukle()
+
+# LLM Analiz Fonksiyonu
 def llm_ile_analiz_et(ham_metin):
     if not ham_metin.strip():
-        return "Boş metin analiz edilemez.", "Yok"
+        return "Boş metin analiz edilemez."
         
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    headers = {"Authorization": f"Bearer {F_TOKEN}"}
     
-    # Yapay zekayı çok daha sıkı bir Türkçe kuralına tabi tutuyoruz:
     prompt = (
         f"<|im_start|>system\n"
         f"Sen çok deneyimli bir Türkçe öğretmenisin ve karmaşık konuları en basit, "
@@ -91,7 +72,7 @@ def llm_ile_analiz_et(ham_metin):
         "inputs": prompt,
         "parameters": {
             "max_new_tokens": 1200,
-            "temperature": 0.3,  # Sıcaklığı düşürdük ki daha mantıklı ve tutarlı cümleler kursun
+            "temperature": 0.3,
             "return_full_text": False
         }
     }
@@ -100,143 +81,71 @@ def llm_ile_analiz_et(ham_metin):
         response = requests.post(API_URL, headers=headers, json=payload)
         sonuc = response.json()
         if isinstance(sonuc, list) and len(sonuc) > 0:
-            analiz_raporu = sonuc[0].get("generated_text", "Analiz üretilemedi.")
-        else:
-            analiz_raporu = "Yapay zeka analiz sunucusundan yanıt alınamadı."
+            return sonuc[0].get("generated_text", "Analiz üretilemedi.")
+        return "Yapay zeka analiz sunucusundan yanıt alınamadı."
     except Exception as e:
-        analiz_raporu = f"Analiz esnasında hata oluştu: {str(e)}"
-        
-    return analiz_raporu
+        return f"Analiz esnasında hata oluştu: {str(e)}"
 
-# ==========================================
-# 4. ANA İŞLEME VE SQL KAYIT SÜRECİ
-# ==========================================
-def belge_analiz_ve_sql_kayit(dosya_girdisi, dosya_adi_girdisi):
-    if dosya_girdisi is None:
-        return "Lütfen bir dosya (PDF veya Görsel) yükleyin.", "Lütfen analiz için dosya gönderin.", "Veri tabanında kayıt yok."
+# Arayüz Tasarımı
+st.title("🤖 Akıllı Çok Sayfalı Belge Analiz ve Özetleme Asistanı")
+st.write("Bu sistem yüklenen dökümanları sayfa sayfa analiz eder ve yapay zeka ile rapor çıkarır.")
+
+# Sekmeler (Tabs)
+tab1, tab2, tab3 = st.tabs(["📊 Analiz Ekranı", "📝 Çıkarılan Ham Metin", "💾 SQL Arşiv Kayıtları"])
+
+with tab1:
+    col1, col2 = st.columns([1, 2])
     
-    dosya_yolu = dosya_girdisi.name
-    dosya_uzantisi = os.path.splitext(dosya_yolu)[1].lower()
+    with col1:
+        yuklenen_dosya = st.file_uploader("Çok Sayfalı PDF veya Fotoğraf Yükle", type=["pdf", "png", "jpg", "jpeg"])
+        belge_adi = st.text_input("Belge Adı / Etiket", placeholder="Örn: Sakarya_Meydan_Muharebesi")
+        baslat_butonu = st.button("🚀 Tüm Belgeyi Baştan Sona Tara ve Analiz Et", use_container_width=True)
+        
+    with col2:
+        st.subheader("📋 Yapay Zeka Detaylı Analiz Raporu")
+        rapor_alani = st.empty()
+        rapor_alani.info("Lütfen sol taraftan bir belge yükleyip analizi başlatın.")
+
+# İşlem Bloğu
+if baslat_butonu and yuklenen_dosya and belge_adi:
+    tüm_metin = ""
+    st.toast("OCR İşlemi Başlatıldı, sayfalar taranıyor...")
     
-    if not dosya_adi_girdisi.strip():
-        dosya_adi_girdisi = os.path.basename(dosya_yolu)
-
-    islenmek_uzere_gorseller = []
-
-    # ---- PDF veya RESİM AYIRT ETME VE TÜM SAYFALARI ALMA ----
-    try:
-        if dosya_uzantisi == ".pdf":
-            pdf_dokumani = fitz.open(dosya_yolu)
-            toplam_sayfa = len(pdf_dokumani)
-            print(f"PDF tespit edildi. Toplam sayfa sayısı: {toplam_sayfa}")
-            
-            # Tüm sayfaları tek tek dolaşıp görsele çeviriyoruz
-            for sayfa_no in range(toplam_sayfa):
-                sayfa = pdf_dokumani.load_page(sayfa_no)
-                # Bilgisayarı yormamak ve hızı korumak için 100 DPI kullanıyoruz
-                piksel_haritasi = sayfa.get_pixmap(dpi=100) 
-                img = Image.frombytes("RGB", [piksel_haritasi.width, piksel_haritasi.height], piksel_haritasi.samples)
-                islenmek_uzere_gorseller.append(img)
-        else:
-            # Tek bir resimse listeye sadece onu ekle
-            img = Image.open(dosya_yolu).convert("RGB")
-            islenmek_uzere_gorseller.append(img)
-            
-    except Exception as e:
-        return f"Dosya işlenirken hata oluştu: {str(e)}", "Dosya okunamadı.", "SQL Kaydı başarısız."
-
-    # ---- TÜM SAYFALARIN TARANMASI (DÖNGÜ) ----
-    nihai_metin = ""
-    for index, image in enumerate(islenmek_uzere_gorseller):
-        print(f"Sayfa {index+1}/{len(islenmek_uzere_gorseller)} taranıyor...")
+    if yuklenen_dosya.type == "application/pdf":
+        doc = fitz.open(stream=yuklenen_dosya.read(), filetype="pdf")
+        for sayfa_no in range(len(doc)):
+            page = doc.load_page(sayfa_no)
+            pix = page.get_pixmap()
+            img_data = pix.tobytes("png")
+            img = Image.open(fitz.io.BytesIO(img_data))
+            sonuc = reader.readtext(np.array(img), detail=0)
+            tüm_metin += f"\n--- Sayfa {sayfa_no+1} ---\n" + " ".join(sonuc)
+    else:
+        img = Image.open(yuklenen_dosya)
+        sonuc = reader.readtext(np.array(img), detail=0)
+        tüm_metin = " ".join(sonuc)
         
-        # 1. Aşama: Sayfa Düzeni Analizi
-        inputs = image_processor(images=image, return_tensors="pt")
-        with torch.no_grad():
-            outputs = model(**inputs)
-        results = image_processor.post_process_object_detection(outputs, target_sizes=[image.size[::-1]])[0]
+    with tab2:
+        st.text_area("OCR Tarafından Okunan Ham Metin", tüm_metin, height=300)
         
-        anlamli_bloklar = []
-        for score, label_id, box in zip(results["scores"], results["labels"], results["boxes"]):
-            if score.item() >= 0.50:
-                anlamli_bloklar.append((box.tolist(), model.config.id2label[label_id.item()]))
-                
-        # Okuma sırasına göre diz
-        anlamli_bloklar.sort(key=lambda x: x[0][1])
-        
-        # 2. Aşama: OCR ile Metinleri Okuma
-        for box, etiket in anlamli_bloklar:
-            x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-            kripilmis = image.crop((x1, y1, x2, y2))
-            ocr_sonucu = reader.readtext(np.array(kripilmis), detail=0)
-            okunan_metin = " ".join(ocr_sonucu)
-            if okunan_metin.strip():
-                nihai_metin += okunan_metin + " "
-        
-        # Sayfa aralarına boşluk ekle
-        nihai_metin += "\n\n"
-            
-    if not nihai_metin.strip():
-        return "Seçilen belgede okunabilir hiçbir metin tespit edilemedi.", "Analiz yapılamadı.", "SQL Kaydı yapılmadı."
-        
-    # 3. Aşama: LLM ile Otomatik Özetleme ve Analiz (Tüm sayfaların birleşik metni gidiyor)
-    print("Tüm döküman başarıyla dijitalleştirildi. LLM analizi başlıyor...")
-    analiz_raporu = llm_ile_analiz_et(nihai_metin)
+    rapor_alani.warning("Metin tarandı, Yapay Zeka (LLM) analizi yapılıyor... Lütfen bekleyin.")
     
-    # ---- 4. Aşama: SQL VERİ TABANI KAYDI ----
-    conn = sqlite3.connect(DB_NAME)
+    # LLM Analizi
+    rapor = llm_ile_analiz_et(tüm_metin)
+    rapor_alani.success("Analiz Tamamlandı!")
+    rapor_alani.markdown(rapor)
+    
+    # Veritabanına Kaydet
+    conn = sqlite3.connect("proje_hafizasi.db")
     cursor = conn.cursor()
-    
-    cursor.execute("INSERT INTO Belgeler (dosya_adi) VALUES (?)", (dosya_adi_girdisi,))
-    son_belge_id = cursor.lastrowid
-    
-    cursor.execute('''
-        INSERT INTO Metin_Sonuclari (belge_id, okunan_metin, belge_ozeti, anahtar_kelimeler)
-        VALUES (?, ?, ?, ?)
-    ''', (son_belge_id, nihai_metin, analiz_raporu, dosya_adi_girdisi))
-    
+    cursor.execute("INSERT INTO belgeler (belge_adi, ham_metin, analiz_raporu) VALUES (?, ?, ?)", (belge_adi, tüm_metin, rapor))
     conn.commit()
     conn.close()
-    
-    # Güncel SQL Tablosunu çekelim
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM Metin_Sonuclari ORDER BY sonuc_id DESC LIMIT 3")
-    gecmis = cursor.fetchall()
+
+# Arşiv Sekmesi Güncellemesi
+with tab3:
+    st.subheader("📂 Geçmiş SQL Kayıtları")
+    conn = sqlite3.connect("proje_hafizasi.db")
+    df = pd.read_sql_query("SELECT id, belge_adi, analiz_raporu FROM belgeler", conn)
+    st.dataframe(df, use_container_width=True)
     conn.close()
-    
-    sql_ekran_raporu = "💾 VERİ TABANINA KAYDEDİLEN SON BELGE RAPORU:\n"
-    for satir in gecmis:
-        sql_ekran_raporu += f"Kayıt ID: {satir[0]} | Belge ID: {satir[1]} | Metin Boyutu: {len(satir[2])} karakter | Detaylı Özet Kaydedildi ✔️\n"
-        
-    return nihai_metin, analiz_raporu, sql_ekran_raporu
-
-# ==========================================
-# 5. AKILLI ARAYÜZ TASARIMI (GRADIO)
-# ==========================================
-with gr.Blocks(theme="soft") as demo:
-    gr.Markdown("# 🤖 Akıllı Çok Sayfalı Belge Analiz ve Özetleme Asistanı")
-    gr.Markdown("Bu sistem yüklenen **çok sayfalı PDF** belgelerini sayfa sayfa analiz eder, tüm içeriği birleştirir ve yapay zeka ile **derinlemesine kapsamlı bir özet rapor** çıkartır.")
-    
-    with gr.Row():
-        with gr.Column(scale=1):
-            dosya_girdisi = gr.File(
-                label="Çok Sayfalı PDF veya Fotoğraf Yükle", 
-                file_types=[".pdf", ".jpg", ".jpeg", ".png"]
-            )
-            isim_girdisi = gr.Textbox(label="Belge Adı / Etiket (Örn: Sakarya_Meydan_Muharebesi)", placeholder="Belge adını buraya yazın...")
-            btn = gr.Button("🔍 Tüm Belgeyi Baştan Sona Tara ve Analiz Et", variant="primary")
-        
-        with gr.Column(scale=2):
-            with gr.Tabs():
-                with gr.TabItem("📊 Yapay Zeka Detaylı Analiz Raporu"):
-                    llm_ciktisi = gr.Markdown(label="LLM Analizi")
-                with gr.TabItem("📝 Çıkarılan Tüm Ham Metin"):
-                    metin_ciktisi = gr.Textbox(label="OCR Metni", lines=15, interactive=False)
-                with gr.TabItem("💾 SQL Arşiv Kayıtları"):
-                    sql_ciktisi = gr.Textbox(label="SQL Canlı Kayıt Bilgisi (SELECT * From Metin_Sonuclari)", lines=6)
-            
-    btn.click(fn=belge_analiz_ve_sql_kayit, inputs=[dosya_girdisi, isim_girdisi], outputs=[metin_ciktisi, llm_ciktisi, sql_ciktisi])
-
-if __name__ == "__main__":
-    demo.launch(share=True)
