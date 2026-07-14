@@ -1,5 +1,3 @@
-HF_TOKEN = os.environ.get("HF_TOKEN")
-
 import os
 import gradio as gr
 import torch
