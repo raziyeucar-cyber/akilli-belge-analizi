@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akıllı Belge Analizi ve Özetleyici</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+        h2 {
+            color: #333;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            resize: vertical;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #sonuc {
+            margin-top: 20px;
+            text-align: left;
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Akıllı Belge Analizi</h2>
+        <p>Metninizi aşağıya girin, yapay zeka özetlesin.</p>
+        
+        <textarea id="sorguInput" placeholder="Analiz edilmesini istediğiniz metni buraya yazın..."></textarea>
+        <br>
+        <button onclick="sorgula()">Özetle / Analiz Et</button>
+
+        <div id="sonuc"></div>
+    </div>
+
+    <script>
+        async function sorgula() {
+            const sorgu = document.getElementById('sorguInput').value;
+            const sonucDiv = document.getElementById('sonuc');
+            
+            if (!sorgu.trim()) {
+                alert("Lütfen bir metin girin!");
+                return;
+            }
+
+            sonucDiv.innerHTML = "Yapay zeka yanıtı hazırlıyor, lütfen bekleyin...";
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sorgu: sorgu })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    sonucDiv.innerHTML = "<strong>Sonuç:</strong><br>" + data.cevap;
+                } else {
+                    sonucDiv.innerHTML = "Hata oluştu: " + (data.hata || "Bilinmeyen hata");
+                }
+            } catch (error) {
+                sonucDiv.innerHTML = "Bağlantı hatası: " + error;
+            }
+        }
+    </script>
+
+</body>
+</html>
