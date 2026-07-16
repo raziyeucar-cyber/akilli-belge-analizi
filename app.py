@@ -17,9 +17,9 @@ def chat():
     sorgu = data.get("sorgu", "")
     
     try:
-        # Doğru ve güncel Hugging Face sohbet metodu
+        # Aktif ve ücretsiz çalışan güncel model
         response = client.chat.completions.create(
-            model="HuggingFaceH4/zephyr-7b-beta",
+            model="google/gemma-2-2b-it",
             messages=[{"role": "user", "content": sorgu}],
             max_tokens=250
         )
