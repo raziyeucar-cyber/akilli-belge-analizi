@@ -4,13 +4,8 @@ import os
 
 app = Flask(__name__)
 
-import os
-from huggingface_hub import InferenceClient
-
-# Token'ı kodun içine yazmıyoruz, Render'dan alacağız
 HF_TOKEN = os.environ.get("HF_TOKEN")
 client = InferenceClient(token=HF_TOKEN)
-
 
 @app.route('/')
 def home():
@@ -22,12 +17,14 @@ def chat():
     sorgu = data.get("sorgu", "")
     
     try:
-        result = client.text_generation(
+        # Doğru ve güncel Hugging Face sohbet metodu
+        response = client.chat.completions.create(
             model="HuggingFaceH4/zephyr-7b-beta",
-            prompt=sorgu,
-            max_new_tokens=250
+            messages=[{"role": "user", "content": sorgu}],
+            max_tokens=250
         )
-        return jsonify({"cevap": result})
+        cevap = response.choices[0].message.content
+        return jsonify({"cevap": cevap})
     except Exception as e:
         return jsonify({"hata": str(e)}), 500
 
