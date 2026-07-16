@@ -18,7 +18,7 @@ def chat():
         kelime_sayisi = len(kelimeler)
         
         if kelime_sayisi > 20:
-            ozet_metin = " ".join(kelimeler[:25]) + "... (Analiz Edildi: Metnin ana hatları başarıyla çıkarıldı ve yapılandırıldı.)"
+            ozet_metin = " ".join(kelimeler[:150]) + "... (Analiz Edildi: Metnin ana hatları başarıyla çıkarıldı ve yapılandırıldı.)"
         else:
             ozet_metin = sorgu + " (Metin kısa olduğu için doğrudan onaylandı ve işleme alındı.)"
 
