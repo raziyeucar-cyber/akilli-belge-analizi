@@ -1,11 +1,13 @@
 from flask import Flask, render_template, request, jsonify
-from huggingface_hub import InferenceClient
+import requests
 import os
 
 app = Flask(__name__)
 
 HF_TOKEN = os.environ.get("HF_TOKEN")
-client = InferenceClient(token=HF_TOKEN)
+# Hugging Face'in en kararlı çalışan doğrudan API uç noktası
+API_URL = "https://api-inference.huggingface.co/models/google/gemma-2-2b-it"
+headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 @app.route('/')
 def home():
@@ -16,14 +18,23 @@ def chat():
     data = request.json
     sorgu = data.get("sorgu", "")
     
+    payload = {
+        "inputs": sorgu,
+        "parameters": {"max_new_tokens": 250}
+    }
+    
     try:
-        # Aktif ve ücretsiz çalışan güncel model
-        response = client.chat.completions.create(
-            model="google/gemma-2-2b-it",
-            messages=[{"role": "user", "content": sorgu}],
-            max_tokens=250
-        )
-        cevap = response.choices[0].message.content
+        response = requests.post(API_URL, headers=headers, json=payload)
+        res_data = response.json()
+        
+        # Gelen yanıtın formatını güvenli bir şekilde yakalayalım
+        if isinstance(res_data, list) and len(res_data) > 0:
+            cevap = res_data[0].get("generated_text", str(res_data))
+        elif isinstance(res_data, dict) and "generated_text" in res_data:
+            cevap = res_data["generated_text"]
+        else:
+            cevap = str(res_data)
+            
         return jsonify({"cevap": cevap})
     except Exception as e:
         return jsonify({"hata": str(e)}), 500
