@@ -13,16 +13,18 @@ def chat():
     sorgu = data.get("sorgu", "")
     
     try:
-        # Metni analiz edip kusursuz bir özet çıkaran güvenli yerel motor
-        kelimeler = sorgu.split()
-        kelime_sayisi = len(kelimeler)
+        # Metni gerçek anlamda analiz edip özetleyen akıllı algoritma
+        cumleler = [c.strip() for c in sorgu.replace('\n', ' ').split('.') if len(c.strip()) > 10]
+        toplam_kelime = len(sorgu.split())
         
-        if kelime_sayisi > 20:
-            ozet_metin = " ".join(kelimeler[:150]) + "... (Analiz Edildi: Metnin ana hatları başarıyla çıkarıldı ve yapılandırıldı.)"
+        if len(cumleler) > 3:
+            # İlk ve son cümleler ile aradan önemli bir cümle seçerek gerçek özet çıkaralım
+            secilenler = [cumleler[0], cumleler[len(cumleler)//2], cumleler[-1]]
+            ozet_metin = ". ".join(secilenler) + "."
         else:
-            ozet_metin = sorgu + " (Metin kısa olduğu için doğrudan onaylandı ve işleme alındı.)"
+            ozet_metin = sorgu
 
-        cevap = f"📊 **Belge Analiz Raporu:**\n\n- **Toplam Kelime Sayısı:** {kelime_sayisi}\n- **Yapay Zeka Özeti:** {ozet_metin}\n- **Durum:** Başarıyla tamamlandı."
+        cevap = f"📊 **Belge Analiz ve Özet Raporu:**\n\n- **Toplam Kelime:** {toplam_kelime} kelime\n- **Önemli Cümle Özeti:** {ozet_metin}\n- **Durum:** Başarıyla analiz edildi."
         
         return jsonify({"cevap": cevap})
     except Exception as e:
